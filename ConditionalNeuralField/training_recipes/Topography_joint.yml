@@ -1,0 +1,51 @@
+load_data_fn: load_Topography_unstructured_all
+load_coord_fn: load_unstructured_coord
+
+save_path: ConditionalNeuralField/output_topography_unstructured
+save_every: ConditionalNeuralField/output_topography_unstructured
+ckpt_loading_path: ConditionalNeuralField/output_topography_unstructured
+
+lumped_latent: False
+
+normalizer:
+  method: '-11'
+  dim: 0
+batch_size: 256
+test_batch_size: 0
+
+multiGPU: 5
+gpu_id: "1, 2, 3, 4, 5"
+master_port: "12361"
+
+readin_data_shape: "N t m c"
+batch_shape: "(N t) m c"
+
+hidden_size: 384
+epochs: 5000
+
+loss_fn: MSELoss
+test_criteria: RMSE
+save_every: 500
+plot_every: 10
+
+dims: 1
+
+log_tag: Topo_Unstruc_NF
+neptune_project: YourNeptuneProjectName
+neptune_api_token: YourNeptuneAPIToken
+
+
+NF:
+  name: SIRENAutodecoder_mdf_film
+  kwargs:
+    omega_0: 20
+    in_coord_features: 2
+    in_latent_features: 384
+    out_features: 4
+    num_hidden_layers: 5
+    hidden_features: 128
+
+lr:
+# -4 -5
+  nf: 1.e-4
+  latents: 1.e-3
