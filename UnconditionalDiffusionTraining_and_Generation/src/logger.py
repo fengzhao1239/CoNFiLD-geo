@@ -1,6 +1,17 @@
 """
 Logger copied from OpenAI baselines to avoid extra RL-based dependencies:
 https://github.com/openai/baselines/blob/ea25b9e8b234e6ee1bca43083f8f3cf974143998/baselines/logger.py
+┌────────────────────────────────────┐
+│ Logging API (logkv, dumpkvs, log) │ ← 主代码中调用的接口
+└────────────────────────────────────┘
+            ↓
+┌────────────────────────────────────┐
+│        Logger(CURRENT) 单例       │ ← 全局日志对象（持有输出后端、缓冲键值）
+└────────────────────────────────────┘
+            ↓
+┌────────────────────────────────────┐
+│        多个 OutputFormat 实例      │ ← stdout / csv / json / tb / wandb
+└────────────────────────────────────┘
 """
 
 import os
@@ -210,7 +221,33 @@ class MyTensorBoard(KVWriter):
             self.writer = None
 
 
-def make_output_format(format, ev_dir, log_suffix=""):
+class WandbWriter(KVWriter):
+    """
+    Logs key/value pairs to Weights & Biases
+    """
+    def __init__(self, tags=None, project="NeuralField", name=None):
+        import wandb
+        self.wandb = wandb
+        self.run = wandb.init(
+                    project=os.environ.get("WANDB_PROJECT", project),
+                    name=name,
+                    tags=[tags] if isinstance(tags, str) else tags,
+                )
+
+    def writekvs(self, kvs):
+        log_dict = {}
+        for k, v in kvs.items():
+            if hasattr(v, "item"):
+                v = v.item()
+            log_dict[f"metrics/{k}"] = v
+        self.wandb.log(log_dict)
+
+    def close(self):
+        if self.run:
+            self.wandb.finish()
+            self.run = None
+
+def make_output_format(format, ev_dir, log_suffix="", wandb_tag="Diffusion", wandb_project="NeuralField", wandb_name=None):
     os.makedirs(ev_dir, exist_ok=True)
     if format == "stdout":
         return HumanOutputFormat(sys.stdout)
@@ -224,6 +261,8 @@ def make_output_format(format, ev_dir, log_suffix=""):
         return TensorBoardOutputFormat(osp.join(ev_dir, "tb%s" % log_suffix))
     elif format == "tensorboard_new":
         return MyTensorBoard(ev_dir)
+    elif format == "wandb":
+        return WandbWriter(tags=wandb_tag, project=wandb_project, name=wandb_name)
     else:
         raise ValueError("Unknown format specified: %s" % (format,))
 
@@ -463,7 +502,7 @@ def mpi_weighted_mean(comm, local_name2valcount):
         return {}
 
 
-def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
+def configure(dir=None, format_strs=None, comm=None, log_suffix="", wandb_tag="Diffusion", wandb_project="NeuralField", wandb_name=None):
     """
     If comm is provided, average all numerical stats across that comm
     """
@@ -488,7 +527,7 @@ def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
         else:
             format_strs = os.getenv("OPENAI_LOG_FORMAT_MPI", "log").split(",")
     format_strs = filter(None, format_strs)
-    output_formats = [make_output_format(f, dir, log_suffix) for f in format_strs]
+    output_formats = [make_output_format(f, dir, log_suffix, wandb_tag, wandb_project, wandb_name) for f in format_strs]
 
     Logger.CURRENT = Logger(dir=dir, output_formats=output_formats, comm=comm)
     if output_formats:

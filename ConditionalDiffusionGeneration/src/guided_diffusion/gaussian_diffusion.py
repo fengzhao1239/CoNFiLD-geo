@@ -49,7 +49,7 @@ def create_sampler(sampler,
                    model_var_type=model_var_type,
                    dynamic_threshold=dynamic_threshold,
                    clip_denoised=clip_denoised, 
-                   rescale_timesteps=rescale_timesteps)
+                   rescale_timesteps=rescale_timesteps)  # inherited from GaussianDiffusion class, call the p_sample_loop to do sampling
 
 
 class GaussianDiffusion:
@@ -176,25 +176,27 @@ class GaussianDiffusion:
         """
         The function used for sampling from noise.
         """ 
-        img = x_start
+        img = x_start    # gaussian noise (torch.randn)
         device = x_start.device
 
         pbar = tqdm(list(range(self.num_timesteps))[::-1])
         for idx in pbar:
             time = torch.tensor([idx] * img.shape[0], device=device)
             
-            img = img.requires_grad_()
+            img = img.requires_grad_()    # prepare for backpropagation
+            
+            # ! the original (DDPM) sampling, corresponding to line <6> of DPS paper algorithm 1
             out = self.p_sample(x=img, t=time, model=model)
             
             # Give condition.
-            noisy_measurement = self.q_sample(measurement, t=time)
+            # noisy_measurement = self.q_sample(measurement, t=time)    # * noisey measurement is only used in 'mcg'
 
-            # TODO: how can we handle argument for different condition method?
+            # ! conditional guidance, corresponding to line <7> of DPS paper algorithm 1
             img, distance = measurement_cond_fn(x_t=out['sample'],
-                                      measurement=measurement,
-                                      noisy_measurement=noisy_measurement,
-                                      x_prev=img,
-                                      x_0_hat=out['pred_xstart'])
+                                        measurement=measurement,
+                                        # noisy_measurement=noisy_measurement,
+                                        x_prev=img,
+                                        x_0_hat=out['pred_xstart'])    # distance is the norm of || y - A * \hat{x_0} ||
             img = img.detach_()
             if distance is not None:
                 pbar.set_postfix({'distance': distance.item()}, refresh=False)

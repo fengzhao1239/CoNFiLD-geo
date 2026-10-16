@@ -1,0 +1,23 @@
+gpu_id: "0"
+master_port: "12362"
+
+data_path: "Dataset/Cartesian_simple.hdf5"
+
+# ---- training configuration ----
+batch_size: 10
+test_batch_size: 2
+num_epochs: 150
+learning_rate: 0.001
+step_size: 2
+gamma: 0.9
+corf: 0.5
+
+# ---- unfo configuration ----
+mode1: 10
+mode2: 10
+mode3: 10
+width: 36
+
+ps_flag: "pre"
+tags: "UFNO_pre"
+

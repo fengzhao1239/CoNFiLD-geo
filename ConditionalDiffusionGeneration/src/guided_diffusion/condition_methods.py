@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import torch
+import torch.nn.functional as F
 
 __CONDITIONING_METHOD__ = {}
 
@@ -27,15 +28,50 @@ class ConditioningMethod(ABC):
     
     def grad_and_value(self, x_prev, x_0_hat, measurement, **kwargs):
         if self.noiser.__name__ == 'gaussian':
-            difference = measurement - self.operator.forward(x_0_hat, **kwargs)
-            norm = torch.linalg.norm(difference)
-            norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]
+            # ! the core part of the conditioning
+            # ! we need to define the < operator.forward > and the < orresponding measurement >
+            # ! need to be fully differentiable
+            # print(f"Measurement shape: {measurement.shape}, x0_hat shape: {self.operator.forward(x_0_hat).shape}")
+            assert measurement.shape == self.operator.forward(x_0_hat, **kwargs).shape, \
+                f"Measurement shape {measurement.shape} does not match operator output shape {self.operator.forward(x_0_hat, **kwargs).shape}"
+            difference = measurement - self.operator.forward(x_0_hat, **kwargs)    # y - A * \hat{x_0}
+            norm = torch.linalg.norm(difference)                                   # || y - A * \hat{x_0} ||2
+            norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]        # the gardient \gard_{x_prev} || y - A * \hat{x_0} ||
         
         elif self.noiser.__name__ == 'poisson':
             Ax = self.operator.forward(x_0_hat, **kwargs)
             difference = measurement-Ax
             norm = torch.linalg.norm(difference) / measurement.abs()
             norm = norm.mean()
+            norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]
+
+        else:
+            raise NotImplementedError
+             
+        return norm_grad, norm
+    
+    def grad_and_value_multi(self, x_prev, x_0_hat, measurement, **kwargs):
+        if self.noiser.__name__ == 'gaussian':
+            assert measurement[0].shape == self.operator.forward(x_0_hat, **kwargs)[0].shape, \
+                f"Measurement shape {measurement[0].shape} does not match operator output shape {self.operator.forward(x_0_hat, **kwargs)[0].shape}"
+            assert measurement[1].shape == self.operator.forward(x_0_hat, **kwargs)[1].shape, \
+                f"Measurement shape {measurement[1].shape} does not match operator output shape {self.operator.forward(x_0_hat, **kwargs)[1].shape}"
+            
+            difference_0 = measurement[0] - self.operator.forward(x_0_hat, **kwargs)[0]
+            difference_1 = measurement[1] - self.operator.forward(x_0_hat, **kwargs)[1]
+            loss_0 = torch.linalg.norm(difference_0)
+            loss_1 = torch.linalg.norm(difference_1)
+            
+            if not hasattr(self, 'initial_losses_recorded'):
+                self.loss0_init = loss_0.detach()
+                self.loss1_init = loss_1.detach()
+                self.w0 = 1.0 / (self.loss0_init + 1e-8)
+                self.w1 = 1.0 / (self.loss1_init + 1e-8)
+                self.initial_losses_recorded = True
+            
+            # print(f"loss_0: {loss_0}, loss_1: {loss_1}, w0: {self.w0}, w1: {self.w1}")
+            # norm = loss_0 + loss_1
+            norm = self.w0 * loss_0 + self.w1 * loss_1
             norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]
 
         else:
@@ -125,3 +161,104 @@ class PosteriorSamplingPlus(ConditioningMethod):
         norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]
         x_t -= norm_grad * self.scale
         return x_t, norm
+
+@register_conditioning_method(name='ps_adam')
+class PosteriorSampling_Adam(ConditioningMethod):
+    def __init__(self, operator, noiser, **kwargs):
+        super().__init__(operator, noiser)
+        self.scale = kwargs.get('scale', 1.0)    #1e-2 ~ 1e-3
+        self.b1 = kwargs.get('b1', 0.9)
+        self.b2 = kwargs.get('b2', 0.999)
+        self.eps = kwargs.get('eps', 1e-8)
+        self.total_diff_steps = kwargs.get('total_diff_steps', 1000)
+        self.curr_diff_step = kwargs.get('curr_diff_step', 1000)
+        self.mt_1 = 0.
+        self.vt_1 = 0.
+
+    def conditioning(self, x_prev, x_t, x_0_hat, measurement, **kwargs):
+        norm_grad, norm = self.grad_and_value(x_prev=x_prev, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+        self.mt_1 = self.b1*self.mt_1 + (1 - self.b1)*norm_grad
+        self.vt_1 = self.b2*self.vt_1 + (1 - self.b2)*(norm_grad)**2
+
+        m_hat = self.mt_1/(1 - (self.b1)**(self.total_diff_steps - self.curr_diff_step + 1))
+        v_hat = self.vt_1/(1 - (self.b2)**(self.total_diff_steps - self.curr_diff_step + 1))
+        
+        x_t -= m_hat/(v_hat.sqrt() + self.eps) * self.scale
+        
+        if self.curr_diff_step == 0:
+            self.curr_diff_step = self.total_diff_steps
+            self.mt_1 = 0.
+            self.vt_1 = 0.
+            return x_t, norm
+        else:
+            self.curr_diff_step -= 1
+            return x_t, norm
+
+
+@register_conditioning_method(name='ps_adam_decay')
+class PosteriorSampling_Adam_Decay(ConditioningMethod):
+    def __init__(self, operator, noiser, **kwargs):
+        super().__init__(operator, noiser)
+        self.start_scale = kwargs.get('start_scale', 1.0)
+        self.end_scale = kwargs.get('end_scale', 0.0)
+        self.b1 = kwargs.get('b1', 0.9)
+        self.b2 = kwargs.get('b2', 0.999)
+        self.eps = kwargs.get('eps', 1e-8)
+        self.total_diff_steps = kwargs.get('total_diff_steps', 1000)
+        self.curr_diff_step = kwargs.get('curr_diff_step', 1000)
+        self.mt_1 = 0.
+        self.vt_1 = 0.
+
+    def conditioning(self, x_prev, x_t, x_0_hat, measurement, **kwargs):
+        norm_grad, norm = self.grad_and_value(x_prev=x_prev, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+        self.mt_1 = self.b1*self.mt_1 + (1 - self.b1)*norm_grad
+        self.vt_1 = self.b2*self.vt_1 + (1 - self.b2)*(norm_grad)**2
+
+        m_hat = self.mt_1/(1 - (self.b1)**(self.total_diff_steps - self.curr_diff_step + 1))
+        v_hat = self.vt_1/(1 - (self.b2)**(self.total_diff_steps - self.curr_diff_step + 1))
+
+        scale = (self.start_scale - self.end_scale)*(self.curr_diff_step/self.total_diff_steps) + self.end_scale
+        x_t -= m_hat/(v_hat.sqrt() + self.eps) * scale
+
+        if self.curr_diff_step == 0:
+            self.curr_diff_step = self.total_diff_steps
+            self.mt_1 = 0.
+            self.vt_1 = 0.
+            return x_t, norm
+        else:
+            self.curr_diff_step -= 1
+            return x_t, norm
+
+
+@register_conditioning_method(name='ps_adam_multi')
+class PosteriorSampling_Adam_Multi(ConditioningMethod):
+    def __init__(self, operator, noiser, **kwargs):
+        super().__init__(operator, noiser)
+        self.scale = kwargs.get('scale', 1.0)    #1e-2 ~ 1e-3
+        self.b1 = kwargs.get('b1', 0.9)
+        self.b2 = kwargs.get('b2', 0.999)
+        self.eps = kwargs.get('eps', 1e-8)
+        self.total_diff_steps = kwargs.get('total_diff_steps', 1000)
+        self.curr_diff_step = kwargs.get('curr_diff_step', 1000)
+        self.mt_1 = 0.
+        self.vt_1 = 0.
+
+    def conditioning(self, x_prev, x_t, x_0_hat, measurement, **kwargs):
+        norm_grad, norm = self.grad_and_value_multi(x_prev=x_prev, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+        self.mt_1 = self.b1*self.mt_1 + (1 - self.b1)*norm_grad
+        self.vt_1 = self.b2*self.vt_1 + (1 - self.b2)*(norm_grad)**2
+
+        m_hat = self.mt_1/(1 - (self.b1)**(self.total_diff_steps - self.curr_diff_step + 1))
+        v_hat = self.vt_1/(1 - (self.b2)**(self.total_diff_steps - self.curr_diff_step + 1))
+        
+        x_t -= m_hat/(v_hat.sqrt() + self.eps) * self.scale
+        
+        
+        if self.curr_diff_step == 0:
+            self.curr_diff_step = self.total_diff_steps
+            self.mt_1 = 0.
+            self.vt_1 = 0.
+            return x_t, norm
+        else:
+            self.curr_diff_step -= 1
+            return x_t, norm

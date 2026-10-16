@@ -16,7 +16,7 @@ def read_yaml(filename: str) -> dict:
         return yaml.safe_load(f)
 
 
-class basic_input(object):
+class basic_input:
     
     defaults = {}
 
@@ -31,6 +31,7 @@ class basic_input(object):
         self.yamlpath = input_file
 
         yaml_dict = read_yaml(input_file)
+        self.yaml_dict = yaml_dict
 
         for key in yaml_dict:
             setattr(self, key, yaml_dict[key])
@@ -46,6 +47,13 @@ class basic_input(object):
     @classmethod
     def update_defaults(cls, new_defaults:dict):
         cls.defaults.update(new_defaults)
+
+
+
+
+
+
+
 
 
 class TrainParamReader(basic_input):

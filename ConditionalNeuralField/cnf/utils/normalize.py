@@ -81,10 +81,12 @@ class Normalizer_ts(Normalizer):
         if not new_data.device == self.params[0].device : 
             self.params = (self.params[0].to(new_data.device),self.params[1].to(new_data.device))
         return self.fnormalize(new_data,self.params,self.method)
+    
     def denormalize(self, new_data_norm):
         if not new_data_norm.device == self.params[0].device : 
             self.params = (self.params[0].to(new_data_norm.device),self.params[1].to(new_data_norm.device))
         return self.fdenormalize(new_data_norm,self.params,self.method)
+    
     def get_params(self):
         if self.method == 'ms':
             print('returning mean and std')

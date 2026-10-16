@@ -1,0 +1,49 @@
+load_data_fn: load_Egg2d_channelized_all
+load_coord_fn: load_unstructured_coord_Egg
+
+save_path: ConditionalNeuralField/output_EggChannelized/all3
+save_every: ConditionalNeuralField/output_EggChannelized/all3
+ckpt_loading_path: ConditionalNeuralField/output_EggChannelized/all3
+
+lumped_latent: False
+
+normalizer:
+  method: '-11'
+  dim: 0
+batch_size: 600
+test_batch_size: 0
+
+multiGPU: 5
+gpu_id: "0,1,2,3,4"
+master_port: "12361"
+
+readin_data_shape: "N t m c"
+batch_shape: "(N t) m c"
+
+hidden_size: 256
+epochs: 5000
+
+loss_fn: MSELoss
+test_criteria: RMSE
+save_every: 500
+plot_every: 10
+
+dims: 1
+
+log_tag: EggChannelized_joint
+project_name: CoNFiLD
+
+NF:
+  name: SIRENAutodecoder_mdf_film
+  kwargs:
+    omega_0: 10
+    in_coord_features: 2
+    in_latent_features: 256
+    out_features: 3
+    num_hidden_layers: 5
+    hidden_features: 128
+
+lr:
+# -4 -5
+  nf: 1.e-4
+  latents: 1.e-3

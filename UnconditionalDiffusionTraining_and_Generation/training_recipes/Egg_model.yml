@@ -1,0 +1,49 @@
+## inference specific args
+#model:
+batch_size : 16
+test_batch_size : 16
+
+time_length : 128
+latent_length : 256
+
+# ---- unet parameters ----
+image_size : 128
+num_channels: 64    # base channel count for the model
+num_res_blocks: 2    # number of residual blocks per downsample
+num_heads: 8    # the number of attention heads in each attention layer
+attention_resolutions: "32,16,8,4,2"
+num_head_channels: 32
+channel_mult: "1,1,2,2,4,4"    # channel multiplier for each level of the UNet
+
+ema_path: "UnconditionalDiffusionTraining_and_Generation/output/logs_Egg_model/ema.pt"
+
+wandb_tag: "Diffusion_Egg_model"
+wandb_project: "CoNFiLD"
+wandb_name: "Diffusion_Egg_model"
+
+#diff:
+steps: 1000
+noise_schedule: "cosine"
+
+#data:
+# max_val: /add/max_val/path/here
+# min_val: /add/min_val/path/here
+latent_checkpoint_path: "ConditionalNeuralField/output_EggChannelized/all3/checkpoint.pt"
+
+# cnf_case_file_path: "ConditionalNeuralField/training_recipes/case2.yml"
+
+save_path: "UnconditionalDiffusionTraining_and_Generation/output/generated_samples_Egg_model.npy"
+save_latent_path: "UnconditionalDiffusionTraining_and_Generation/output/generated_latents_Egg_model.npy"
+
+## train specific args
+microbatch: -1  # = batch size
+lr : 5.e-5
+ema_rate: "0.9999"
+log_interval: 100
+save_interval: 10000
+lr_anneal_steps: 0  # default
+
+log_path : "UnconditionalDiffusionTraining_and_Generation/output/logs_Egg_model"
+
+# train_data_path: /add/train_data/path/here
+# valid_data_path: /add/valid_data/path/here

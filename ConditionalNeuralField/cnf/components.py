@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 import numpy as np
 from collections import OrderedDict
 import math
@@ -18,7 +19,7 @@ class Swish(nn.Module):
 
 class Sine(nn.Module):
     def __init__(self, w0 = init.DEFAULT_W0):
-        self.w0 = w0
+        self.w0 = w0                               # w0 is not learnable
         super().__init__()
 
     def forward(self, input):
@@ -27,7 +28,7 @@ class Sine(nn.Module):
 class Sine_tw(nn.Module):
     def __init__(self, w0 = init.DEFAULT_W0):
         super().__init__()
-        self.w0 = nn.Parameter(torch.tensor([w0], dtype = torch.float32))
+        self.w0 = nn.Parameter(torch.tensor([w0], dtype = torch.float32))          # w0 is learnable
 
     def forward(self, input):
         return torch.sin(self.w0 * input)
@@ -493,3 +494,69 @@ class GaborNet(MFNBase):
                 for _ in range(num_hidden_layers + 1)
             ]
         )
+
+
+class GaussianFourierFeatureTransform(torch.nn.Module):
+    """
+    Modified from below:
+    An implementation of Gaussian Fourier feature mapping.
+
+    "Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains":
+       https://arxiv.org/abs/2006.10739
+       https://people.eecs.berkeley.edu/~bmild/fourfeat/index.html
+     
+     Given an input of size [batches, (width, height), num_input_channels],
+     returns a tensor of size [batches, (width, height), mapping_size*2].
+    """
+
+    def __init__(self, num_input_channels, mapping_size=64, scale=10):
+        super().__init__()
+
+        self._num_input_channels = num_input_channels
+        self._mapping_size = mapping_size
+        self._B = torch.randn((num_input_channels, mapping_size)) * scale
+
+    def forward(self, x):
+        
+        if x.dim() == 3:
+            batches, n_grids, channels = x.shape
+        elif x.dim() == 4:
+            batches, width, height, channels = x.shape
+        else:
+            raise ValueError('Expected 3D or 4D input (got {}D input)'.format(x.dim()))
+        assert channels == self._num_input_channels,\
+            "Expected input to have {} channels (got {} channels)".format(self._num_input_channels, channels)
+
+        # Make shape compatible for matmul with _B.
+        # From [B, C, W, H] to [(B*W*H), C].
+        # x = x.permute(0, 2, 3, 1).reshape(batches * width * height, channels)
+
+        x = x @ self._B.to(x.device)
+
+        # From [(B*W*H), C] to [B, W, H, C]
+        # x = x.view(batches, width, height, self._mapping_size)
+        # From [B, W, H, C] to [B, C, W, H]
+        # x = x.permute(0, 3, 1, 2)
+
+        x = 2 * math.pi * x
+        out = torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
+        return out
+
+
+class Activation(nn.Module):
+    def __init__(self, siren, omega_0):
+        super(Activation, self).__init__()
+        self.siren = siren
+        self.omega_0 = omega_0
+
+    def forward(self, input):
+        if self.siren:
+            return self.actSIN(input)
+        else:
+            return self.actELU(input)
+    
+    def actELU(self, input):
+        return F.elu(input)
+
+    def actSIN(self, input):
+        return torch.sin(self.omega_0 * input)

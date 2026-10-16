@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
-from .resample import LossAwareSampler, UniformSampler
+from .resample import LossAwareSampler, UniformSampler, LossSecondMomentResampler
 
 # For ImageNet experiments, this was a good default value.
 # We found that the lg_loss_scale quickly climbed to
@@ -59,6 +59,7 @@ class TrainLoop:
         self.use_fp16 = use_fp16
         self.fp16_scale_growth = fp16_scale_growth
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
+        # self.schedule_sampler = LossSecondMomentResampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
         self.final_lr = final_lr
@@ -69,6 +70,8 @@ class TrainLoop:
         self.sync_cuda = th.cuda.is_available()
 
         self._load_and_sync_parameters()
+        
+        # the core class that wraps the model, loss_bp, optimizer_step, and zero_grad
         self.mp_trainer = MixedPrecisionTrainer(
             model=self.model,
             use_fp16=self.use_fp16,
@@ -154,6 +157,7 @@ class TrainLoop:
             self.opt.load_state_dict(state_dict)
 
     def run_loop(self):
+        # ! main loop
         while (
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
@@ -161,7 +165,7 @@ class TrainLoop:
             train_batch, = next(self.train_data)
             valid_batch, = next(self.valid_data)
             self.run_step(train_batch,valid_batch, None) #self.run_step(batch, cond)
-            if self.step % self.log_interval == 0:
+            if self.step % self.log_interval == 0:    # write out logs
                 logger.dumpkvs()
             if self.step % self.save_interval == 0:
                 self.save()
@@ -184,7 +188,7 @@ class TrainLoop:
         if took_step:
             self._update_ema()
         self._anneal_lr()
-        self.log_step()
+        self.log_step()  # ! log the step (one step = forward pass)
 
     def forward_backward(self, batch, cond={}):
         self.mp_trainer.zero_grad()
@@ -198,7 +202,7 @@ class TrainLoop:
             t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
 
             compute_losses = functools.partial(
-                self.diffusion.training_losses,
+                self.diffusion.training_losses,    # see gaussian_diffusion.py
                 self.ddp_model,
                 micro,
                 t,
@@ -218,6 +222,7 @@ class TrainLoop:
                 )
 
             loss = (losses["loss"] * weights).mean()
+            # ! logging losses
             log_loss_dict(
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}
             )

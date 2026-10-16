@@ -1,13 +1,16 @@
 #Imports
+import os
 import sys
+import time
 import torch
 import numpy as np
 from src.script_util import create_model, create_gaussian_diffusion
 from src.train_util import TrainLoop
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, DistributedSampler
 from src.dist_util import setup_dist, dev
 from src.logger import configure, log
 from basicutility import ReadInput as ri
+from latents.create_dataset import Cartesian_Dataset, Norway_Dataset, Egg_Dataset
 
 ## Setup
 torch.manual_seed(42)
@@ -16,7 +19,8 @@ np.random.seed(42)
 inp = ri.basic_input(sys.argv[1])
 
 setup_dist()
-configure(dir=inp.log_path, format_strs=["stdout","log","tensorboard_new"])
+# setup logger system
+configure(dir=inp.log_path, format_strs=["stdout","log","wandb"], wandb_tag=inp.wandb_tag, wandb_project=getattr(inp, "wandb_project", "CoNFiLD"), wandb_name=getattr(inp, "wandb_name", None))
 
 ## HyperParams (Change according to the case)
 batch_size = inp.batch_size
@@ -40,28 +44,21 @@ log_interval= inp.log_interval
 save_interval= inp.save_interval
 lr_anneal_steps= inp.lr_anneal_steps
 
+log("-- training start time: ", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
 ## Data Preprocessing
-train_data = np.load(inp.train_data_path)
-valid_data = np.load(inp.valid_data_path)
-
-max_val, min_val = np.max(train_data, keepdims=True), np.min(train_data, keepdims=True)
-norm_train_data = -1 + (train_data - min_val)*2. / (max_val - min_val)
-norm_valid_data = -1 + (valid_data - min_val)*2. / (max_val - min_val)
-
-norm_train_data = torch.from_numpy(norm_train_data[:, None, ...])
-norm_valid_data = torch.from_numpy(norm_valid_data[:, None, ...])
-
-log("creating data loader...")
+log("-- creating data loader...")
+norm_train_data, norm_valid_data = Egg_Dataset(inp.latent_checkpoint_path).create_dataset()
 
 dl_train = DataLoader(TensorDataset(norm_train_data), batch_size=batch_size, shuffle=True)
 dl_valid = DataLoader(TensorDataset(norm_valid_data), batch_size=test_batch_size, shuffle=True)
 
+# use yield to infinitely iterate over the dataloader
 def dl_iter(dl):
     while True:
         yield from dl 
 
 ## Unet Model
-log("creating model and diffusion...")
+log("-- creating model and diffusion...")
 
 unet_model = create_model(image_size=image_size,
                           num_channels= num_channels,
@@ -69,18 +66,25 @@ unet_model = create_model(image_size=image_size,
                           num_heads=num_heads,
                           num_head_channels=num_head_channels,
                           attention_resolutions=attention_resolutions,
-                          channel_mult=channel_mult
+                          channel_mult=channel_mult,
+                          learn_sigma=True, # !
+                          use_fp16=True, # !
+                          use_new_attention_order=True,
+                          use_scale_shift_norm=True,
+                          
                         )
 
 unet_model.to(dev())
+log(f"-- model created, total params: {sum(p.numel() for p in unet_model.parameters())}")
 
 ## Gaussian Diffusion
 diff_model = create_gaussian_diffusion(steps=steps,
-                                       noise_schedule=noise_schedule
+                                       noise_schedule=noise_schedule,
+                                       learn_sigma=True # !
                                     )
 
 ## Training Loop
-log("training...")
+log("-- training...")
 
 train_uncond_model = TrainLoop(
                                 model=unet_model,
@@ -94,6 +98,8 @@ train_uncond_model = TrainLoop(
                                 log_interval=log_interval,
                                 save_interval=save_interval,
                                 lr_anneal_steps=lr_anneal_steps,
-                                resume_checkpoint="")
+                                resume_checkpoint="",
+                                use_fp16=True, # !
+                                )
 
 train_uncond_model.run_loop()

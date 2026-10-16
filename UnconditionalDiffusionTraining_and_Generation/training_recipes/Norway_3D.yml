@@ -1,0 +1,37 @@
+## inference specific args
+#model:
+batch_size : 32
+test_batch_size : 8
+
+time_length : 128
+latent_length : 256
+
+# ---- unet parameters ----
+image_size : 256
+num_channels: 64    # base channel count for the model
+num_res_blocks: 2    # number of residual blocks per downsample
+num_heads: 8    # the number of attention heads in each attention layer
+num_head_channels: 32    # if specified, ignore num_heads and instead use a fixed channel width per attention head
+attention_resolutions: "32,16,8,4"
+channel_mult: "1,1,2,2,4,4"    # channel multiplier for each level of the UNet
+
+
+wandb_tag: "Diffusion_Norway_3D"
+
+#diff:
+steps: 1000
+noise_schedule: "cosine"
+
+
+latent_checkpoint_path: "ConditionalNeuralField/output_Norway/all3/checkpoint.pt"
+
+
+## train specific args
+microbatch: -1  # = batch size
+lr : 1.e-5
+ema_rate: "0.9999"
+log_interval: 100
+save_interval: 5000
+lr_anneal_steps: 0  # default
+
+log_path : "UnconditionalDiffusionTraining_and_Generation/output/logs_norway_3D"

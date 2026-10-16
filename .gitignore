@@ -1,2 +1,32 @@
 .env
 __pycache__
+UnconditionalDiffusionTraining_and_Generation/POD_NF_compare/
+UnconditionalDiffusionTraining_and_Generation/output/
+
+# data & checkpoints
+Dataset/
+ConditionalNeuralField/output_*/
+ConditionalDiffusionGeneration/inference_scripts/*/*_outputs/
+*.pt
+*.pth
+*.npy
+*.hdf5
+
+# logs
+wandb/
+
+# env / OS
+.DS_Store
+._*
+.vscode/
+.codex
+tmux-config/
+.ipynb_checkpoints/
+/test.py
+
+# old Case4 workspace (kept locally)
+ConditionalDiffusionGeneration/inference_scripts/Case4/
+
+# latent fitting for unseen data (kept locally)
+ConditionalNeuralField/scripts/test.py
+ConditionalNeuralField/scripts/inference.py
