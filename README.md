@@ -1,4 +1,11 @@
-# CoNFiLD-geo
+# Conditional Neural Field Latent Diffusion for Geoscience
+
+[![arXiv](https://img.shields.io/badge/arXiv%20paper-2406.06525-b31b1b.svg)](https://arxiv.org/abs/2508.16640)
+
+<p align="center">
+  <img src="assets/pic1.png" alt="framework" width="20%">
+</p>
+Conditional Neural Field Latent Diffusion for Geoscience (CoNFiLD-geo) is a generative framework for zero-shot conditional reconstruction of geomodels and corresponding reservoir responses from diverse types of observational data, enabling real-time inversion with unceetainty quantification in realistic geological carbon sequestration projects.
 
 ## Create python Environment
 
