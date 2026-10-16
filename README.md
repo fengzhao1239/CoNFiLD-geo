@@ -1,5 +1,7 @@
 # Conditional Neural Field Latent Diffusion for Geoscience
 
+[![DOI](https://zenodo.org/badge/1099280083.svg)](https://doi.org/10.5281/zenodo.23409485)
+
 <p align="center">
   <img src="assets/pic1.png" alt="framework" width="20%">
 </p>
