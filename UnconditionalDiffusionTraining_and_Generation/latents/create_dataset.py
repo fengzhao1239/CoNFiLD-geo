@@ -50,6 +50,7 @@ class Cartesian_Dataset:
         return -1 + (data - minimum) * 2. / (maximum - minimum)
 
 
+# also used for the Topography case (same t=128 layout)
 class Norway_Dataset:
     def __init__(self, load_checkpoint, train_val_split=0.9):
         checkpoint = torch.load(load_checkpoint)
